@@ -1,0 +1,146 @@
+---
+title: "Energy Efficiency Prediction"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This research evaluates building heating and cooling load requirements, focussing on energy efficiency as a function of several building parameters. Our target variable, the average energy load of a structure, will be the focus of this study to understand its components. We use a variety of statistical modelling methods to gain insights that help improve building energy efficiency.
+
+
+## Data Preparation
+
+The methodology of this study is comprised of a number of important elements, the first of which is a comprehensive understanding and preparation of the data. There are several other characteristics that pertain to the design of buildings that are included in the collection. These characteristics include Relative Compactness, Surface Area, Wall Area, Roof Area, Overall Height, Orientation, Glazing Area, and Glazing Area Distance. In the course of the phase devoted to the preparation of the data, it was verified that the dataset did not contain any missing values, outliers, or data type incompatibilities. An additional target variable was developed as part of the analysis. This new variable represents the average of the heating load and the cooling load. In order to simplify the study, the variables that were originally used to represent the heating load and the cooling load were eliminated.
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+library(dplyr)
+library(reshape2)
+library(readxl)
+library(ggplot2)
+library(rpart)
+library(caret)
+library(Metrics)
+library(randomForest)
+```
+
+
+
+```{r, echo=FALSE}
+data <- read_excel("ENB2012_data.xlsx")
+colnames(data) <- c("Relative_Compactness", "Surafce_Area", "Wall_Area", 
+                    "Roof_Area", "Overall_Height", "Orientation", "Glazing_Area",
+                    "Glazing_Area_Dist", "Heating_Load", "Cooling_Load")
+colSums(is.na(data))
+```
+
+According to the summary statistics of the dataset, the average load varies greatly, with the maximum recorded average load reaching 44.975. This indicates that the average load is highly variable.
+
+```{r, echo=FALSE}
+data <- data %>%
+  mutate(Avg_Load = (Heating_Load + Cooling_Load) / 2) %>%
+  select(-Heating_Load, -Cooling_Load)
+summary(data)
+```
+
+The overall height revealed a high positive association with the average load, whereas the surface area and roof area both exhibited large negative relationships with the load. This latter finding is particularly noteworthy. The Wall Area variable displayed a weak positive association with the average load, however the other variables did not reveal any meaningful correlations with one another.
+
+```{r, echo=FALSE}
+corrplot::corrplot(cor(data))
+```
+
+
+## Machine Learning Models
+
+R implemented Linear Regression, Decision Trees, and Random Forests for analysis. Linear Regression was chosen for its simplicity and interpretability to understand predictor elements and average load. Decision Tree data modelling captures complicated variable interactions and is more flexible and non-linear. Multiple decision trees were averaged in Random Forests to improve prediction accuracy and avoid overfitting. Cross-validation tuned Decision Tree and Random Forest hyperparameters to improve model performance. Each model was assessed using MAE, MSE, and R Square.
+
+
+## Performance of Models
+
+After the research, several surprising patterns and significant performance improvements across modelling approaches were found. The Linear Regression model has a Mean Absolute Error of 1.88, a Mean Squared Error of 6.70, and a R Square value of 0.92, indicating a good fit. These values imply acceptable model accuracy. The Decision Tree model performed much better. The mean absolute error was 1.40, the mean squared error was 3.34, and the R Square value was 0.96, indicating that it accurately captured the data's relationships. The Random Forest model improved predicted accuracy with an MAE of 0.49, MSE of 0.61, and R Square of 0.99. These results show that the model can make virtually flawless predictions and that this ensemble technique works.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Split data into training and testing sets
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(data$Avg_Load, p = 0.8, list = FALSE)
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+# Define a function to evaluate model performance
+evaluate_model <- function(model, test_data) {
+  predictions <- predict(model, newdata = test_data)
+  mae <- mae(test_data$Avg_Load, predictions)
+  mse <- mse(test_data$Avg_Load, predictions)
+  r_squared <- cor(test_data$Avg_Load, predictions)^2
+  
+  return(data.frame(MAE = mae, MSE = mse, R_squared = r_squared))
+}
+
+# 1. Linear Regression
+set.seed(123)
+lm_model <- train(Avg_Load ~ ., data = train_data, method = "lm")
+lm_results <- evaluate_model(lm_model, test_data)
+
+# 2. Decision Tree
+set.seed(123)
+dt_model <- train(Avg_Load ~ ., data = train_data, method = "rpart", 
+                  tuneLength = 10, trControl = trainControl(method = "cv", number = 10))
+dt_results <- evaluate_model(dt_model, test_data)
+
+# 3. Random Forest
+set.seed(123)
+rf_model <- train(Avg_Load ~ ., data = train_data, method = "rf", 
+                  tuneLength = 10, trControl = trainControl(method = "cv", number = 10))
+rf_results <- evaluate_model(rf_model, test_data)
+
+# Compare model performance
+results_summary <- rbind(
+  cbind(Model = "Linear Regression", lm_results),
+  cbind(Model = "Decision Tree", dt_results),
+  cbind(Model = "Random Forest", rf_results)
+)
+
+print("Model Performance Summary:")
+print(results_summary)
+```
+
+
+## Comparison of Models
+
+The Linear Regression model is a baseline because of its simplicity and interpretability. It posits a linear relationship between predictor factors and target variables, revealing how each component affects average load. The Linear Regression model had an MAE of 1.88, an MSE of 6.70, and a R Square of 0.92. These results show a good match to the data, but the model's linear assumptions may not capture the intricacies of variable connections, especially interactions.
+
+Decision Tree data modelling is more flexible and non-linear. The Decision Tree may detect and express complicated interactions and nonlinear relationships between variables by segmenting the data by attributes. Decision Tree results indicated a significant improvement in prediction performance, with an MAE of 1.40, MSE of 3.34, and R Square of 0.96. This approach captures data patterns better than Linear Regression since it handles variable interactions. Decision Trees can overfit, especially when improperly calibrated.
+
+The Random Forest model, which includes several Decision Trees, outperforms Linear Regression and Decision Trees. The Random Forest had excellent prediction accuracy with an MAE of 0.49, MSE of 0.61, and R Square of 0.99. This increase is due to its capacity to average numerous tree predictions, lowering Decision Tree variation. Random Forests are less likely to overfit since they randomly select tree features, which improves generalisation to new data. For this higher accuracy, Random Forests are harder to read than Linear Regression since knowing their characteristics is more complicated.
+
+```{r, echo=FALSE}
+# Combine results into a single data frame for plotting
+results_summary_melted <- melt(results_summary, id.vars = "Model")
+
+# Create bar plots for MAE, MSE, and R Square
+ggplot(results_summary_melted, aes(x = Model, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Model Performance Comparison",
+       x = "Model",
+       y = "Metric Value") +
+  scale_fill_manual(values = c("MAE" = "red", "MSE" = "blue", "R_squared" = "green"),
+                    name = "Metrics",
+                    labels = c("MAE", "MSE", "R Square")) +
+  theme_minimal()
+```
+
+## Conclusion
+
+Finally, this study showed how architectural features affect energy load requirements. Thus, it illuminated building energy efficiency factors. As shown by the Random Forest model's better performance than Linear Regression and Decision Trees, adopting appropriate modelling methodologies is crucial. These insights can assist architects and engineers construct energy-efficient buildings by focussing on key characteristics that affect energy loads. Research may find strategies to improve predictive models. To improve energy load calculations, architectural components and powerful machine learning algorithms may be added.
+
+
+
+
+
+
+
+
+
